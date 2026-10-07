@@ -413,13 +413,14 @@ def download_meme(candidate, rank, output_dir):
     }
 
 
-def get_top_memes_by_section(per_section, output_dir):
+def get_top_memes_by_section(per_section, output_dir, excluded_ids):
     """Return {'photo': [...], 'video': [...], 'gif': [...]}, each the top
     `per_section` posts of that category ranked by upvotes, media saved to
-    output_dir. Candidates that fail to download validly (even after
-    retries) are skipped in favor of the next-highest-voted one.
+    output_dir. Posts in `excluded_ids` (already sent recently) are skipped.
+    Candidates that fail to download validly (even after retries) are
+    skipped in favor of the next-highest-voted one.
     """
-    buckets = collect_candidates(per_section)
+    buckets = collect_candidates(per_section, excluded_ids)
 
     result = {}
     for category in ("photo", "gif", "video"):
@@ -444,12 +445,16 @@ def get_top_memes_by_section(per_section, output_dir):
 def build_section_html(title, emoji, memes, columns, image_base_url):
     if not memes:
         return f"""
-    <h2 style="color:#222; font-family:Arial,Helvetica,sans-serif;">{emoji} Top {title}</h2>
-    <p style="color:#999; font-size:13px; font-family:Arial,Helvetica,sans-serif;">No qualifying posts found today.</p>"""
+<h2 style="color:#222; font-family:Arial,Helvetica,sans-serif;">{emoji} New {title}</h2>
+<p style="color:#999; font-size:13px; font-family:Arial,Helvetica,sans-serif;">No new qualifying posts since the last check.</p>"""
 
     cards = []
     for m in memes:
-        title_esc = escape(m["title"])
+        raw_title = m["title"]
+        title_esc = escape(raw_title)
+        # Short teaser for the summary bar; full title still shows once expanded.
+        teaser_raw = raw_title if len(raw_title) <= 70 else raw_title[:68].rsplit(" ", 1)[0] + "…"
+        teaser_esc = escape(teaser_raw)
         img_url = f"{image_base_url}/{quote(m['filename'])}"
         play_badge = (
             '<span style="position:absolute; top:6px; right:6px; background:rgba(0,0,0,0.65); '
@@ -461,22 +466,24 @@ def build_section_html(title, emoji, memes, columns, image_base_url):
             if m["has_gif_preview"] else ""
         )
         cards.append(f"""
-        <td style="padding:8px; vertical-align:top; width:{100 // columns}%;">
-          <a href="{escape(m['post_url'])}" style="text-decoration:none; color:inherit;">
-            <div style="border:1px solid #e0e0e0; border-radius:10px; overflow:hidden; font-family:Arial,Helvetica,sans-serif;">
-              <div style="position:relative;">
-                <img src="{escape(img_url)}" alt="{title_esc}" style="display:block; width:100%; height:auto; max-height:500px; object-fit:contain; background:#f5f5f5;">
-                <span style="position:absolute; top:6px; left:6px; background:rgba(0,0,0,0.65); color:#fff; font-size:12px; padding:2px 7px; border-radius:12px;">#{m['rank']}</span>
-                {play_badge}
-              </div>
-              <div style="padding:10px;">
-                <div style="font-size:13px; color:#222; line-height:1.35; max-height:52px; overflow:hidden;">{title_esc}</div>
-                <div style="font-size:12px; color:#888; margin-top:6px;">&#9650; {m['votes']:,} upvotes</div>
-                {note}
-              </div>
-            </div>
-          </a>
-        </td>""")
+<td style="padding:8px; vertical-align:top; width:{100 // columns}%;">
+<details open style="border:1px solid #e0e0e0; border-radius:10px; overflow:hidden; font-family:Arial,Helvetica,sans-serif;">
+<summary style="cursor:pointer; padding:10px; background:#fafafa; border-bottom:1px solid #e0e0e0; font-size:13px; color:#222;">
+<span style="color:#888;">#{m['rank']}</span>&nbsp;{teaser_esc}&nbsp;<span style="color:#888; white-space:nowrap;">&#9650; {m['votes']:,}</span>
+</summary>
+<a href="{escape(m['post_url'])}" style="text-decoration:none; color:inherit;">
+<div style="position:relative;">
+<img src="{escape(img_url)}" alt="{title_esc}" style="display:block; width:100%; height:auto; max-height:500px; object-fit:contain; background:#f5f5f5;">
+{play_badge}
+</div>
+<div style="padding:10px;">
+<div style="font-size:13px; color:#222; line-height:1.35;">{title_esc}</div>
+<div style="font-size:12px; color:#888; margin-top:6px;">&#9650; {m['votes']:,} upvotes</div>
+{note}
+</div>
+</a>
+</details>
+</td>""")
 
     rows = []
     for i in range(0, len(cards), columns):
@@ -485,10 +492,10 @@ def build_section_html(title, emoji, memes, columns, image_base_url):
         rows.append(f"<tr>{''.join(row_cards)}</tr>")
 
     return f"""
-    <h2 style="color:#222; font-family:Arial,Helvetica,sans-serif;">{emoji} Top {len(memes)} {title}</h2>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:900px;">
-      {''.join(rows)}
-    </table>"""
+<h2 style="color:#222; font-family:Arial,Helvetica,sans-serif;">{emoji} {len(memes)} New {title}</h2>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:900px;">
+{''.join(rows)}
+</table>"""
 
 
 def build_html(sections, columns, image_base_url):
@@ -549,8 +556,11 @@ def cmd_generate():
         shutil.rmtree(EMAIL_DIR)
     os.makedirs(EMAIL_DIR)
 
+    sent_ids = load_sent_ids()
+    print(f"Skipping {len(sent_ids)} post(s) already sent in the last {SENT_RETENTION_HOURS:g}h.")
+
     print(f"Fetching top {per_section} per section (image/video/gif)...")
-    sections = get_top_memes_by_section(per_section, PREVIEWS_DIR)
+    sections = get_top_memes_by_section(per_section, PREVIEWS_DIR, sent_ids)
 
     total = sum(len(sections[k]) for k, _, _ in SECTIONS)
     if total == 0:
@@ -586,7 +596,7 @@ def cmd_generate():
     with open(os.path.join(EMAIL_DIR, "body.txt"), "w") as f:
         f.write(text)
     with open(os.path.join(EMAIL_DIR, "meta.json"), "w") as f:
-        json.dump({"total": total}, f)
+        json.dump({"total": total, "ids": [str(m["id"]) for m in all_memes(sections)]}, f)
 
     print(f"Generated {total} meme(s). Images saved to ./{PREVIEWS_DIR}/, email saved to ./{EMAIL_DIR}/")
 
@@ -631,6 +641,11 @@ def cmd_send():
         server.send_message(msg)
 
     print(f"Sent to {recipient}!")
+
+    # Only record posts as sent once the email actually went out, so a failed
+    # send doesn't hide those posts from the next run.
+    save_sent_ids(load_sent_ids(), meta.get("ids", []))
+    print(f"Recorded {len(meta.get('ids', []))} post ID(s) in {STATE_FILE}.")
 
 
 def main():

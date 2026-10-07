@@ -1,8 +1,13 @@
-# 9gag Top Meme of the Day -> Email (runs on GitHub Actions, no local computer needed)
+# 9gag Top Memes of the Day -> Email (runs on GitHub Actions, no local computer needed)
 
-This repo emails you the current #1 hot post from 9gag every day, automatically,
+This repo emails you a digest of 9gag's hot feed every 6 hours, automatically,
 using GitHub's free scheduled-workflow runners. Nothing needs to run on your
 own machine.
+
+Each email has three sections — Static Images, Videos and GIFs — with the top
+30 posts of each ranked by upvotes (videos and GIFs shown as animated
+previews). Posts already sent in the last 26 hours are skipped, so every email
+only has new memes.
 
 ## One-time setup (~5 minutes)
 
@@ -11,7 +16,9 @@ own machine.
 2. **Create a new repository**
    - Click "+" (top right) -> "New repository"
    - Name it anything, e.g. `9gag-meme-emailer`
-   - Set it to **Private** (recommended, keeps your workflow config private)
+   - Set it to **Public**. The email's images are hosted on this repo's
+     `meme-assets` branch, and Gmail can't load them from a private repo.
+     Your Gmail credentials stay hidden as encrypted secrets either way.
    - Click "Create repository"
 
 3. **Upload these files** to the repo (drag-and-drop works fine via the GitHub
@@ -34,13 +41,13 @@ own machine.
 
 6. **Test it manually**
    - Go to the "Actions" tab in your repo
-   - Click "Send Top Meme of the Day" on the left
+   - Click "Send Top Memes of the Day" on the left
    - Click "Run workflow" -> "Run workflow" (green button)
-   - Wait ~20-30 seconds, refresh, click into the run to see logs / confirm success
+   - Wait a few minutes (it downloads and converts ~90 posts), refresh, click into the run to see logs / confirm success
    - Check the recipient inbox for the email
 
-That's it — from now on it runs automatically every day at the time set in
-`.github/workflows/send-meme.yml` (default 09:00 UTC), with no computer of
+That's it — from now on it runs automatically at the times set in
+`.github/workflows/send-meme.yml` (default every 6 hours), with no computer of
 yours needing to be on.
 
 ## Changing the schedule
@@ -48,7 +55,7 @@ yours needing to be on.
 Open `.github/workflows/send-meme.yml` and edit this line:
 
 ```
-- cron: "0 9 * * *"
+- cron: "0 */6 * * *"
 ```
 
 Cron format is `minute hour day month weekday`, always in **UTC**. Examples:
@@ -63,8 +70,12 @@ https://www.timeanddate.com/worldclock/converter.html)
 
 ## Notes
 
-- GitHub Actions free tier includes 2,000 minutes/month for private repos —
-  this job takes well under a minute a day, so it's effectively free.
+- GitHub Actions is free for public repos.
+- The workflow keeps the images from the last 8 runs on the `meme-assets`
+  branch. Emails older than that (about 2 days) lose their images; change
+  `ASSET_RUNS_TO_KEEP` in the workflow to keep more.
+- Sent-post history is saved in `state/sent_ids.json`, which the workflow
+  commits back to the repo after each email.
 - You can also trigger it manually anytime via the "Run workflow" button.
 - If the run fails, check the Actions tab -> the failed run -> logs. Common
   causes: a secret is missing/misspelled, or the Gmail app password was

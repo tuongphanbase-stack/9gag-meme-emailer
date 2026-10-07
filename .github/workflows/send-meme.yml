@@ -1,16 +1,29 @@
-name: Send Top Meme of the Day
+name: Send Top Memes of the Day
 
 on:
   schedule:
-    # Runs at 09:00 UTC every day. Edit the cron below to change the time.
-    # Cron is always UTC on GitHub Actions — convert your local time.
-    # e.g. 9am ICT (Vietnam, UTC+7) = 2am UTC -> "0 2 * * *"
-    - cron: "0 9 * * *"
+    # Every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC (7am, 1pm, 7pm, 1am in
+    # Vietnam). Cron is always UTC on GitHub Actions — convert your local time.
+    # Posts sent in the last SENT_RETENTION_HOURS are skipped, so each email
+    # only has new memes.
+    - cron: "0 */6 * * *"
   workflow_dispatch: {}   # lets you trigger it manually from the Actions tab to test
+
+permissions:
+  contents: write   # push images to the meme-assets branch and history to main
+
+concurrency:
+  group: send-meme
+  cancel-in-progress: false
 
 jobs:
   send-meme:
     runs-on: ubuntu-latest
+    env:
+      IMAGE_BRANCH: meme-assets
+      # How many past runs' images stay hosted. Emails older than this lose
+      # their images (8 runs = 2 days at every 6 hours).
+      ASSET_RUNS_TO_KEEP: "8"
     steps:
       - name: Check out repo
         uses: actions/checkout@v6
@@ -20,14 +33,70 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install requests
+      - name: Install ffmpeg (for video/gif previews)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
 
-      - name: Run meme emailer
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate email and images
+        env:
+          MEMES_PER_SECTION: "30"   # top N per section (images, videos, gifs)
+          GRID_COLUMNS: "3"         # cards per row
+          TIMEZONE: "Asia/Ho_Chi_Minh"
+        run: python 9gag_top_meme_emailer.py generate
+
+      - name: Publish images to the meme-assets branch
+        env:
+          REPO_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+        run: |
+          if [ ! -d "previews/$GITHUB_RUN_ID" ]; then
+            echo "No images generated this run."
+            exit 0
+          fi
+
+          WT="$RUNNER_TEMP/meme-assets"
+          mkdir -p "$WT" && cd "$WT"
+          git init -q
+
+          # Bring back the previous runs' images, if the branch exists yet.
+          if git fetch -q --depth=1 "$REPO_URL" "$IMAGE_BRANCH"; then
+            git checkout -q FETCH_HEAD -- previews || true
+          fi
+          mkdir -p previews
+          cp -r "$GITHUB_WORKSPACE/previews/$GITHUB_RUN_ID" previews/
+
+          # Keep only the newest runs so the branch doesn't grow forever.
+          ls -1 previews | sort -n | head -n "-$ASSET_RUNS_TO_KEEP" \
+            | xargs -r -I{} rm -rf "previews/{}"
+
+          # Replace the branch with a single fresh commit, so old images don't
+          # pile up in its history.
+          rm -rf .git
+          git init -q -b "$IMAGE_BRANCH"
+          git add previews
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898283+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "Meme images for run $GITHUB_RUN_ID [skip ci]"
+          git push -q -f "$REPO_URL" "HEAD:refs/heads/$IMAGE_BRANCH"
+
+      - name: Wait for images to be served
+        run: sleep 20
+
+      - name: Send email
         env:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MEME_RECIPIENT: ${{ secrets.MEME_RECIPIENT }}
-          VOTE_THRESHOLD: "5000"   # only send memes with more than this many upvotes
-          MAX_MEMES: "20"          # cap on attachments per email
-        run: python 9gag_top_meme_emailer.py
+        run: python 9gag_top_meme_emailer.py send
+
+      - name: Save sent-post history
+        run: |
+          if [ -n "$(git status --porcelain state/)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+            git add state/sent_ids.json
+            git commit -q -m "Update sent meme history [skip ci]"
+            git pull -q --rebase origin "$GITHUB_REF_NAME"
+            git push -q origin "HEAD:$GITHUB_REF_NAME"
+          fi
