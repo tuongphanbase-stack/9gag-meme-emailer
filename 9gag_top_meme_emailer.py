@@ -67,7 +67,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from html import escape
@@ -262,7 +262,7 @@ def load_sent_ids():
     except (json.JSONDecodeError, OSError):
         return {}
 
-    cutoff = datetime.utcnow().timestamp() - SENT_RETENTION_HOURS * 3600
+    cutoff = time.time() - SENT_RETENTION_HOURS * 3600
     fresh = {}
     for post_id, ts_str in data.items():
         try:
@@ -279,7 +279,7 @@ def save_sent_ids(sent_ids, newly_sent_ids):
     to the local state file (a separate workflow step commits this to the
     repo's main branch afterward).
     """
-    now_iso = datetime.utcnow().isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
     merged = dict(sent_ids)
     for post_id in newly_sent_ids:
         merged[str(post_id)] = now_iso
