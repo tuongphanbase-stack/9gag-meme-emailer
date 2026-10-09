@@ -246,7 +246,7 @@ STATE_FILE = os.path.join(STATE_DIR, "sent_ids.json")
 # How long a post is remembered as "already sent" before it's eligible to be
 # picked again. With 4 sends/day (every 6h), 26h comfortably covers a full
 # day's worth of runs with a little overlap margin.
-SENT_RETENTION_HOURS = float(os.environ.get("SENT_RETENTION_HOURS", "26"))
+SENT_RETENTION_HOURS = float(os.environ.get("SENT_RETENTION_HOURS") or "26")
 
 
 def load_sent_ids():
@@ -543,8 +543,8 @@ def resolve_image_base_url():
 
 
 def cmd_generate():
-    per_section = int(os.environ.get("MEMES_PER_SECTION", "30"))
-    columns = int(os.environ.get("GRID_COLUMNS", "3"))
+    per_section = int(os.environ.get("MEMES_PER_SECTION") or "30")
+    columns = int(os.environ.get("GRID_COLUMNS") or "3")
 
     print(f"ffmpeg available: {FFMPEG_AVAILABLE}"
           + ("" if FFMPEG_AVAILABLE else " -- video/gif posts will fall back to a static thumbnail!"))
