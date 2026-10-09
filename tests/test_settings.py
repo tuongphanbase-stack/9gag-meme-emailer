@@ -49,3 +49,20 @@ class Settings(unittest.TestCase):
 
     def test_loads_with_no_settings(self):
         load(unset=setting_names())
+
+
+class Dashboard(unittest.TestCase):
+    def test_generate_updates_the_dashboard_status(self):
+        m = load()
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(m, "get_top_memes_by_section", return_value={k: [] for k, _, _ in m.SECTIONS}):
+            os.chdir(tmp)
+            try:
+                m.cmd_generate()
+                with open(m.LATEST_FILE, encoding="utf-8") as f:
+                    latest = f.read()
+            finally:
+                os.chdir(cwd)
+        self.assertIn('"item_count": 0', latest)
+        self.assertIn('"updated_at": "20', latest)

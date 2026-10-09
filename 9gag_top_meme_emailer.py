@@ -542,6 +542,21 @@ def resolve_image_base_url():
     return f"https://raw.githubusercontent.com/{repo}/{branch}/{PREVIEWS_DIR}"
 
 
+LATEST_FILE = os.path.join("docs", "latest.json")
+
+
+def write_latest(item_count, status):
+    """Run status for the dashboard in docs/ (committed by the workflow)."""
+    os.makedirs(os.path.dirname(LATEST_FILE), exist_ok=True)
+    with open(LATEST_FILE, "w") as f:
+        json.dump({
+            "repo": "9gag-meme-emailer",
+            "status": status,
+            "item_count": item_count,
+            "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }, f, indent=2)
+
+
 def cmd_generate():
     per_section = int(os.environ.get("MEMES_PER_SECTION") or "30")
     columns = int(os.environ.get("GRID_COLUMNS") or "3")
@@ -567,6 +582,7 @@ def cmd_generate():
         print("No memes found.")
         with open(os.path.join(EMAIL_DIR, "meta.json"), "w") as f:
             json.dump({"total": 0}, f)
+        write_latest(0, "no new memes")
         return
 
     animated_count = sum(1 for m in all_memes(sections) if m["has_gif_preview"])
@@ -597,6 +613,7 @@ def cmd_generate():
         f.write(text)
     with open(os.path.join(EMAIL_DIR, "meta.json"), "w") as f:
         json.dump({"total": total, "ids": [str(m["id"]) for m in all_memes(sections)]}, f)
+    write_latest(total, "ok")
 
     print(f"Generated {total} meme(s). Images saved to ./{PREVIEWS_DIR}/, email saved to ./{EMAIL_DIR}/")
 
