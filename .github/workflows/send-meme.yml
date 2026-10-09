@@ -19,6 +19,7 @@ concurrency:
 jobs:
   send-meme:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       # Without the Gmail secrets, the Send step is skipped (with a warning)
       # instead of failing the run every time.
